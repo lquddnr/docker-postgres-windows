@@ -17,6 +17,12 @@ https://hub.docker.com/r/stellirin/postgres-windows.
 
 ## History
 
+- 2025.1.22
+  - forked
+  - add PG16
+  - add [PostGIS](https://postgis.net/) extension (build.cmd not complete)
+
+
 - 2025.1
   - added Windows 20H2 and PostgreSQL 15.10-3
   - build it with `.\build.cmd pg15 win20H2`

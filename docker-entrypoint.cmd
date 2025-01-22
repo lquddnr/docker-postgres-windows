@@ -123,6 +123,24 @@ if NOT exist "%PGDATA%\PG_VERSION" (
         call psql !psqlParam! -f "%%f"
     )
 
+    call :file_env PGIS_ENABLE
+
+    :: Execute PostGIS-related extensions for the new database
+    if [!PGIS_ENABLE!] == [TRUE] (
+        call :file_env GDAL_DATA
+        call :file_env PROJ_LIB
+
+        echo Enabling PostGIS extensions in database: "!POSTGRES_DB!"
+
+        call psql !psqlParam! -c "CREATE EXTENSION postgis;"
+        call psql !psqlParam! -c "CREATE EXTENSION postgis_raster;"
+        call psql !psqlParam! -c "CREATE EXTENSION postgis_sfcgal;"
+        call psql !psqlParam! -c "CREATE EXTENSION postgis_topology;"
+        call psql !psqlParam! -c "CREATE EXTENSION address_standardizer;"
+        call psql !psqlParam! -c "CREATE EXTENSION fuzzystrmatch;"
+        call psql !psqlParam! -c "CREATE EXTENSION postgis_tiger_geocoder;"
+    )
+
     pg_ctl -U "!POSTGRES_USER!" -D "%PGDATA%" -m fast -w stop
 
     echo PostgreSQL init process complete; ready for start up.

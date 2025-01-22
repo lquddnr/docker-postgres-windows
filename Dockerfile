@@ -29,13 +29,13 @@ RUN echo Installing $env:EDB_ZIP;\
     Remove-Item -Recurse -Force –Path 'C:\\pgsql\\doc' ; \
     Remove-Item -Recurse -Force –Path 'C:\\pgsql\\include' ; \
     Remove-Item -Recurse -Force –Path 'C:\\pgsql\\pgAdmin*' ; \
-    Remove-Item -Recurse -Force –Path 'C:\\pgsql\\StackBuilder'
+    Remove-Item -Recurse -Force –Path 'C:\\pgsql\\StackBuilder' ;
 
 ### Make the sample config easier to munge (and "correct by default")
 RUN $SAMPLE_FILE = 'C:\\pgsql\\share\\postgresql.conf.sample' ; \
     $SAMPLE_CONF = Get-Content $SAMPLE_FILE ; \
     $SAMPLE_CONF = $SAMPLE_CONF -Replace '#listen_addresses = ''localhost''','listen_addresses = ''*''' ; \
-    $SAMPLE_CONF | Set-Content $SAMPLE_FILE
+    $SAMPLE_CONF | Set-Content $SAMPLE_FILE ;
 
 ENV VCLIBS_NEW='Using Visual C++ 140 OneCore dlls from Visual Studio 2022 located at eg. C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Redist\MSVC\14.42.34433\onecore\x64\Microsoft.VC143.CRT'
 ENV VCLIBS_OLD='Visual C++ 2013 Redistributable Package'
@@ -56,7 +56,7 @@ RUN if (($env:EDB_VER -like '9.*') -or ($env:EDB_VER -like '10.*')) { \
             '/install', \
             '/passive', \
             '/norestart' \
-        )
+        );
 
 # Determine new files installed by VC Redist
 # RUN Get-ChildItem -Path 'C:\\Windows\\System32' | Sort-Object -Property LastWriteTime | Select Name,LastWriteTime -First 25
@@ -71,6 +71,28 @@ RUN if (Test-Path 'C:\\windows\\system32\\msvcp120.dll') { \
         Copy-Item 'C:\\MSVC\\*' -Destination 'C:\\pgsql\\bin' ; \
     }
 
+### Set the variables for PostGis
+ARG PGIS_ENABLE=FALSE
+ENV PGIS_ENABLE $PGIS_ENABLE
+ENV PGIS_REPO https://download.osgeo.org/postgis/windows/
+
+# Copy and unpack PostGis
+# TODO PostGis version needs to be variable
+RUN if (($env:PGIS_ENABLE -eq 'TRUE') -and ($env:EDB_VER -match '1[3-6]')) { \
+    $PGIS_VER = 'pg' + $Matches.0 ; \
+    $PGIS_URL = $env:PGIS_REPO + $PGIS_VER + '/postgis-bundle-'+ $PGIS_VER + '-3.5.0x64.zip' ; \
+    $tempFolder = 'C:\\temps' ; \
+    $bundlerName = 'C:\\postgis-bundle.zip' ; \
+    echo $PGIS_URL ; \
+    Invoke-WebRequest -Uri $PGIS_URL -OutFile $bundlerName ; \
+    Expand-Archive $bundlerName -DestinationPath $tempFolder ; \
+    $topLevelFolder = Get-ChildItem -Path 'C:\\temps' | Select-Object -First 1 ; \
+    echo $topLevelFolder ; \
+    Invoke-Expression 'Robocopy $topLevelFolder.FullName "C:\pgsql" /E /COPYALL /R:3 /W:5' -ErrorAction Ignore ; \
+    } else { \
+              echo pass PostGis install ; \
+          }
+
 ####
 #### PostgreSQL on Windows Nano Server
 ####
@@ -81,11 +103,17 @@ RUN mkdir "C:\\docker-entrypoint-initdb.d"
 #### Copy over PostgreSQL
 COPY --from=prepare /pgsql /pgsql
 
+ENV PGIS_ENABLE $PGIS_ENABLE
+ENV PGPATH "C:\\pgsql"
+ENV PGDATA "C:\\pgsql\\data"
+ENV PROJ_LIB "C:\\pgsql\\data\\share\\contrib\\postgis-3.5\\proj"
+ENV GDAL_DATA "C:\\pgsql\\data\\gdal-data"
+
 #### In order to set system PATH, ContainerAdministrator must be used
 USER ContainerAdministrator
-RUN setx /M PATH "C:\\pgsql\\bin;%PATH%"
+RUN setx /M PATH "C:\\pgsql\\bin;%PROJ_LIB%;%GDAL_DATA%;%PATH%"
 USER ContainerUser
-ENV PGDATA "C:\\pgsql\\data"
+
 
 COPY docker-entrypoint.cmd /
 ENTRYPOINT ["C:\\docker-entrypoint.cmd"]

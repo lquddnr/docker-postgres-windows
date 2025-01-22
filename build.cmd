@@ -1,7 +1,7 @@
 @echo off
 SETLOCAL EnableDelayedExpansion
 
-:: Usage: build.cmd pgValue winValue
+:: Usage: build.cmd pgValue winValue enablePGIS
     ::    pgValue: specifies a specific PostgreSQL version. One of:
     ::             pg94
     ::             pg95
@@ -10,6 +10,7 @@ SETLOCAL EnableDelayedExpansion
     ::             pg11
     ::             pg12
     ::             pg15
+    ::             pg16
     ::   winValue: specifies a specific Windows base image. One of:
     ::             win1607
     ::             win1709
@@ -18,6 +19,10 @@ SETLOCAL EnableDelayedExpansion
     ::             win1903
     ::             win1909
     ::             win20H2
+    ::   winValue: specifies a specific Windows base image. One of:
+    ::             TRUE
+    ::             FALSE
+
 :: If no values are specified then all images are built.
 
 :: Batch file has no concept of a function, only goto
@@ -40,13 +45,18 @@ goto :start
         )
     )
 
+    echo docker build --build-arg WIN_VER=%winVer% --build-arg EDB_VER=%edbVer% --tag %repoName%:%pgVer%-%winVer% --tag %repoName%:%tagVer%-%winVer% .
+
     docker build ^
         --build-arg WIN_VER=%winVer% ^
         --build-arg EDB_VER=%edbVer% ^
         --tag %repoName%:%pgVer%-%winVer% ^
         --tag %repoName%:%tagVer%-%winVer% ^
         .
+
+    echo docker push %repoName%:%pgVer%-%winVer%
     docker push %repoName%:%pgVer%-%winVer%
+    echo docker push %repoName%:%tagVer%-%winVer%
     docker push %repoName%:%tagVer%-%winVer%
 EXIT /B 0
 
@@ -86,7 +96,7 @@ EXIT /B 0
 
 :start
 
-set repoName=marekistvanekmycronic/postgres-windows
+set repoName=lquddnr/postgres-windows
 
 :: Build versions of PostgreSQL supported by EnterpriseDB
 set pgValue=%~1
@@ -99,6 +109,7 @@ if [%pgValue%] == [] (
     set pg11=true
     set pg12=true
     set pg15=true
+    set pg16=true
 )
 if NOT [%pgValue%] == [] (
     set %pgValue%=true
@@ -123,6 +134,13 @@ if NOT [%winValue%] == [] (
 ::docker pull mcr.microsoft.com/windows/nanoserver:1809
 ::docker pull mcr.microsoft.com/windows/nanoserver:1903
 ::docker pull mcr.microsoft.com/windows/nanoserver:1909
+
+:: Enable PostGIS extension
+set enablePGIS=%~3
+if NOT [%enablePGIS%] == [TRUE] (
+    set %enablePGIS%=FALSE
+
+)
 
 :: ------------------------------------------------------------
 :: ------------------------------------------------------------
@@ -192,3 +210,13 @@ if [%pg15%] == [true] (
         call :manifest_build "15.10"
     )
 )
+
+:: PostgreSQL 16
+if [%pg16%] == [true] (
+    call :postgres_build "16.6-3"
+    if [%winValue%] == [] (
+        call :manifest_build "16"
+        call :manifest_build "16.3"
+    )
+)
+
