@@ -10,20 +10,22 @@ FROM mcr.microsoft.com/windows/servercore:${WIN_VER} as prepare
 
 ### Set the variables for EnterpriseDB
 ARG EDB_VER
-ENV EDB_VER $EDB_VER
-ENV EDB_REPO https://get.enterprisedb.com/postgresql
+ENV EDB_VER=$EDB_VER \
+    EDB_REPO=https://get.enterprisedb.com/postgresql
 
 ##### Use PowerShell for the installation
 SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop';$ProgressPreference = 'SilentlyContinue';"]
 
-ENV EDB_URL=$EDB_REPO/postgresql-$EDB_VER-windows-x64-binaries.zip
-ENV EDB_ZIP=C:\\EnterpriseDB.zip
+ENV EDB_URL=$EDB_REPO/postgresql-$EDB_VER-windows-x64-binaries.zip \
+    EDB_ZIP=C:\\EnterpriseDB.zip \
+    LOG_MONITOR_URL=https://github.com/microsoft/windows-container-tools/releases/download/v2.1.1/LogMonitor.exe
+
 
 ### Download EnterpriseDB and remove cruft
 RUN echo Downloading $env:EDB_URL;\
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;\
-    Invoke-WebRequest -Uri "$env:EDB_URL" -OutFile "$env:EDB_ZIP"
-RUN echo Installing $env:EDB_ZIP;\
+    Invoke-WebRequest -Uri "$env:EDB_URL" -OutFile "$env:EDB_ZIP" ; \
+    echo Installing $env:EDB_ZIP;\
     Expand-Archive "$env:EDB_ZIP" -DestinationPath 'C:\\' ; \
     Remove-Item -Path "$env:EDB_ZIP" ; \
     Remove-Item -Recurse -Force –Path 'C:\\pgsql\\doc' ; \
@@ -37,8 +39,8 @@ RUN $SAMPLE_FILE = 'C:\\pgsql\\share\\postgresql.conf.sample' ; \
     $SAMPLE_CONF = $SAMPLE_CONF -Replace '#listen_addresses = ''localhost''','listen_addresses = ''*''' ; \
     $SAMPLE_CONF | Set-Content $SAMPLE_FILE ;
 
-ENV VCLIBS_NEW='Using Visual C++ 140 OneCore dlls from Visual Studio 2022 located at eg. C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Redist\MSVC\14.42.34433\onecore\x64\Microsoft.VC143.CRT'
-ENV VCLIBS_OLD='Visual C++ 2013 Redistributable Package'
+ENV VCLIBS_NEW='Using Visual C++ 140 OneCore dlls from Visual Studio 2022 located at eg. C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Redist\MSVC\14.42.34433\onecore\x64\Microsoft.VC143.CRT' \
+    VCLIBS_OLD='Visual C++ 2013 Redistributable Package'
 
 ### Install correct Visual C++ Redistributable Package
 # MI: See VC140 OneCore dlls discussion at https://github.com/dotnet/runtime/issues/40131#issuecomment-670077781 I was inspired to look at which allowed to make postgres.exe 15 work
@@ -73,17 +75,15 @@ RUN if (Test-Path 'C:\\windows\\system32\\msvcp120.dll') { \
 
 ### Set the variables for PostGis
 ARG PGIS_ENABLE=FALSE
-ENV PGIS_ENABLE $PGIS_ENABLE
-ENV PGIS_REPO https://download.osgeo.org/postgis/windows/
+ENV PGIS_ENABLE=$PGIS_ENABLE \
+    PGIS_REPO=https://download.osgeo.org/postgis/windows/
 
-# Copy and unpack PostGis
-# TODO PostGis version needs to be variable
+# Copy and unpack PostGis 임시 PostGis버전 변수화 필요
 RUN if (($env:PGIS_ENABLE -eq 'TRUE') -and ($env:EDB_VER -match '1[3-6]')) { \
     $PGIS_VER = 'pg' + $Matches.0 ; \
     $PGIS_URL = $env:PGIS_REPO + $PGIS_VER + '/postgis-bundle-'+ $PGIS_VER + '-3.5.0x64.zip' ; \
     $tempFolder = 'C:\\temps' ; \
     $bundlerName = 'C:\\postgis-bundle.zip' ; \
-    echo $PGIS_URL ; \
     Invoke-WebRequest -Uri $PGIS_URL -OutFile $bundlerName ; \
     Expand-Archive $bundlerName -DestinationPath $tempFolder ; \
     $topLevelFolder = Get-ChildItem -Path 'C:\\temps' | Select-Object -First 1 ; \
@@ -93,30 +93,34 @@ RUN if (($env:PGIS_ENABLE -eq 'TRUE') -and ($env:EDB_VER -match '1[3-6]')) { \
               echo pass PostGis install ; \
           }
 
+# Log monitor
+ADD LogMonitorConfig.json "C:\\LogMonitor\\LogMonitorConfig.json"
+RUN echo Downloading Log Monitor $env:LOG_MONITOR_URL ; \
+    Invoke-WebRequest -Uri "$env:LOG_MONITOR_URL" -OutFile 'C:\\LogMonitor\\LogMonitor.exe' ;
+
 ####
 #### PostgreSQL on Windows Nano Server
 ####
-FROM mcr.microsoft.com/windows/nanoserver:${WIN_VER}
+FROM mcr.microsoft.com/windows/servercore:${WIN_VER}
 
-RUN mkdir "C:\\docker-entrypoint-initdb.d"
-
-#### Copy over PostgreSQL
+#### Copy over PostgreSQL and LogMonitor
+COPY --from=prepare "C:\\LogMonitor" "C:\\LogMonitor"
 COPY --from=prepare /pgsql /pgsql
 
-ENV PGIS_ENABLE $PGIS_ENABLE
-ENV PGPATH "C:\\pgsql"
-ENV PGDATA "C:\\pgsql\\data"
-ENV PROJ_LIB "C:\\pgsql\\data\\share\\contrib\\postgis-3.5\\proj"
-ENV GDAL_DATA "C:\\pgsql\\data\\gdal-data"
+ENV PGIS_ENABLE=$PGIS_ENABLE \
+    PGPATH="C:\\pgsql" \
+    PGDATA="C:\\pgsql\\data" \
+    PROJ_LIB="C:\\pgsql\\data\\share\\contrib\\postgis-3.5\\proj" \
+    GDAL_DATA="C:\\pgsql\\data\\gdal-data"
 
 #### In order to set system PATH, ContainerAdministrator must be used
 USER ContainerAdministrator
 RUN setx /M PATH "C:\\pgsql\\bin;%PROJ_LIB%;%GDAL_DATA%;%PATH%"
 USER ContainerUser
 
-
+RUN mkdir "C:\\docker-entrypoint-initdb.d"
 COPY docker-entrypoint.cmd /
-ENTRYPOINT ["C:\\docker-entrypoint.cmd"]
 
 EXPOSE 5432
+ENTRYPOINT ["C:\\LogMonitor\\LogMonitor.exe", "C:\\docker-entrypoint.cmd"]
 CMD ["postgres"]

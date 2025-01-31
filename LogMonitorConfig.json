@@ -1,0 +1,18 @@
+{
+  "LogConfig": {
+    "logFormat": "custom",
+      "sources": [
+          {
+            "type": "Process",
+            "customLogFormat": "%TimeStamp% [%Source%] - %Message% "
+          },
+        {
+          "type": "File",
+          "directory": "c:\\pgsql\\data\\log",
+          "filter": "*.log",
+          "includeSubdirectories": false,
+          "customLogFormat": "%FileName%: %Message%"
+        }
+      ]
+  }
+}
